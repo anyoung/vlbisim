@@ -12,6 +12,7 @@
 #  
 #  Changelog:
 #  	AY: Created 2015-01-20
+#	AY: Changed frequency magnitude slope block to dB/GHz 2015-01-27
 
 """
 Defines various fundamental signal processing blocks.
@@ -348,7 +349,7 @@ class AnalogFrequencyGainSlope(Block):
 		Construct an analog spectrum gain slope block.
 		
 		Arguments:
-		m -- The gain slope, in units Hz^-1.
+		m -- The gain slope, in units dB/GHz.
 		
 		Notes:
 		See SimSWARM.Signal.TransformedAnalogSignal.apply_frequency_magnitude_slope 
@@ -357,7 +358,7 @@ class AnalogFrequencyGainSlope(Block):
 		
 		self._slope = m
 	
-	def output(self,s_in):
+	def output(self):
 		"""
 		Return a transformed analog signal with the corresponding gain.
 		
@@ -410,7 +411,7 @@ class AnalogFrequencyPhaseSlope(Block):
 		p -- The phase slope, in units Hz^-1.
 		
 		Notes:
-		See SimSWARM.Signal.TransformedAnalogSignal.apply_frequency_magnitude_slope 
+		See SimSWARM.Signal.TransformedAnalogSignal.apply_frequency_phase_slope 
 		for additional information.
 		"""
 		

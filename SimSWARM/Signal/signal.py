@@ -12,6 +12,8 @@
 #  
 #  Changelog:
 #  	AY: Created 2015-01-20
+#	AY: Changed frequency magnitude slope to dB/GHz
+
 """
 Defines various signal utilities.
 
@@ -209,7 +211,8 @@ class TransformedAnalogSignal(AnalogSignal):
 		fstep = 1.0*r/n
 		fvec = np.arange(-fmax,fmax,fstep)
 		if (self.frequency_magnitude_slope != None):
-			fd_samples = fd_samples * (2.0*pi * self.frequency_magnitude_slope * np.abs(fvec))
+			#fd_samples = fd_samples * (2.0*pi * self.frequency_magnitude_slope * np.abs(fvec))
+			fd_samples = fd_samples * 10**((self.frequency_magnitude_slope/20.0) * (np.abs(fvec)/1.0e9))
 		
 		if (self.frequency_phase_slope != None):
 			fd_samples = fd_samples * np.exp(1j*2.0*pi * self.frequency_phase_slope * fvec)
@@ -248,16 +251,18 @@ class TransformedAnalogSignal(AnalogSignal):
 		Apply a magnitude slope to the analog signal in the frequency domain.
 		
 		Arguments:
-		m -- The slope in units Hz^-1
+		m -- The slope in units dB/GHz
 		
 		Notes:
 		The slope is applied with even symmetry in the frequency domain,
 		i.e. the negative of the slope is applied to negative frequencies.
 		
-		Given the unit of m the per-sample amplification is (2*pi*|f|) * m, 
-		where f is the frequency of the given sample.
+		The multiplier is calculated as follows:
+			M = 10**(m/20 * f/1e9)
+		and then the FFT result is multiplied per-point using the frequency
+		points where the spectrum is sampled.
 		
-		Additional magnitude slopes are multiplicative.
+		Additional magnitude slopes are multiplicative (additive in dB).
 		"""
 		
 		if (m == None):
@@ -266,7 +271,7 @@ class TransformedAnalogSignal(AnalogSignal):
 		if (self.frequency_magnitude_slope == None):
 			self._frequency_magnitude_slope = m
 		else:
-			self._frequency_magnitude_slope = self.frequency_magnitude_slope * m
+			self._frequency_magnitude_slope = self.frequency_magnitude_slope + m
 	
 	def apply_frequency_phase_slope(self,p):
 		"""
@@ -397,7 +402,7 @@ class CompoundAnalogSignal(TransformedAnalogSignal):
 		Apply a magnitude slope to the compound analog signal in the frequency domain.
 		
 		Arguments:
-		m -- The slope in units Hz^-1
+		m -- The slope in units dB/GHz
 		
 		Notes:
 		Frequency magnitude slopes are applied to each component signal
