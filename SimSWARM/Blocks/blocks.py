@@ -13,6 +13,7 @@
 #  Changelog:
 #  	AY: Created 2015-01-20
 #	AY: Changed frequency magnitude slope block to dB/GHz 2015-01-27
+#	AY: Added Parallel class 2015-01-27
 
 """
 Defines various fundamental signal processing blocks.
@@ -21,6 +22,8 @@ Defines various fundamental signal processing blocks.
 
 import SimSWARM.Signal as sg
 import FixedWidthBinary as fw
+
+import copy
 
 class Block(object):
 	"""
@@ -90,7 +93,113 @@ class Block(object):
 		
 		raise RuntimeError("Input is not reducable to Signal instance.")
 	
+	@classmethod
+	def copy(cls,b):
+		"""
+		Construct and return a copy of the given block.
+		
+		Arguments:
+		b -- Block instance to copy.
+		
+		Notes:
+		Current implementation uses a deep copy.
+		"""
+		
+		return copy.deepcopy(b)
+
 # end class Block
+
+class Parallel(Block):
+	"""
+	Baseclass for representing parallel processes.
+	
+	"""
+	
+	@property
+	def blocks(self):
+		"""
+		Return the list of parallel blocks.
+		"""
+		
+		return self._blocks
+	
+	def __init__(self,parblock,n=None):
+		"""
+		Construct a parallel signal processing path.
+		
+		Arguments:
+		parblock -- A Block that defines the processing that occurs in 
+		each parallel path.
+		
+		Keyword Arguments:
+		n -- The number of parallel paths.
+		
+		Notes:
+		If n == None then parblock is assumed to be a list of Block 
+		instances, and a separate parallel signal path is created using
+		each of the items in the list. If n is an integer then Block is
+		assumed to be a single Block instance, which is copied n times
+		to create the separate signal paths.
+		"""
+		
+		if (n == None):
+			self._blocks = parblock
+		else:
+			self._blocks = list()
+			for ii in range(0,n):
+				self._blocks.append(Block.copy(parblock))
+		
+
+	def attach_source(self,src):
+		"""
+		Attach a source to this parallel processing path.
+		
+		Arguments:
+		src -- The input source to the processing paths, either list
+		of Signal/Block or a single Signal/Block.
+		
+		Notes:
+		For src a list of objects, each item in the list is attached as
+		a source to each item in the list of parallel blocks. For a single
+		object, if it is a Parallel instance, then each of its parallel
+		blocks is used as input for each of this Parallel's blocks. For
+		any other single object instance, src is copied and attached
+		separately for each parallel block.
+		
+		"""
+		
+		if (isinstance(src,list)):
+			for ii in range(0,len(src)):
+				self.blocks[ii].attach_source(src[ii])
+		elif (isinstance(src,Parallel)):
+			src = src.blocks
+			for ii in range(0,len(src)):
+				self.blocks[ii].attach_source(src[ii])
+		elif (isinstance(src,Block)):
+			for iblock in self.blocks:
+				iblock.attach_source(Block.copy(src))
+		elif (isinstance(src,sg.Signal)):
+			for iblock in self.blocks:
+				iblock.attach_source(sg.Signal.copy(src))
+		else:
+			raise TypeError("Invalid type for source to attach to Parallel.")
+	
+	def output(self):
+		"""
+		Return the output signals for the parallel paths.
+		
+		Notes:
+		The returned value is a list containing the output method result
+		of each of the parallel blocks individually.
+		"""
+		
+		out = list()
+		for iblock in self.blocks:
+			out.append(iblock.output())
+		
+		return out
+		
+# end class Parallel
 
 
 class Chain(Block):
@@ -462,8 +571,16 @@ class AnalogCombiner(Block):
 		
 		Arguments:
 		s_in_list -- A list of valid Block input instances, i.e. either
-		Block or Signal instances.
+		Block or Signal instances, or a Parallel instance.
+		
+		Notes:
+		If s_in_list is a Parallel instance, that class' blocks attribute
+		is accessed and the returned list of Block instances used as the
+		source to attach, as if s_in_list was the same list of Block instances.
 		"""
+		
+		if (isinstance(s_in_list,Parallel)):
+			s_in_list = s_in_list.blocks
 		
 		if (not isinstance(s_in_list,list)):
 			raise ValueError("Source for AnalogCombiner should be a list of Block and/or Signal instances.")
@@ -728,8 +845,16 @@ class DigitalCombiner(Block):
 		
 		Arguments:
 		s_in_list -- A list of valid Block input instances, i.e. either
-		Block or Signal instances.
+		Block or Signal instances, or a single Parallel instance.
+		
+		Notes:
+		If s_in_list is a Parallel instance, then that class' blocks
+		attribute is accessed to return a list of Blocks, which is then
+		used as the list of sources to attach.
 		"""
+		
+		if (isinstance(s_in_list,Parallel)):
+			s_in_list = s_in_list.blocks
 		
 		if (not isinstance(s_in_list,list)):
 			raise ValueError("Source for DigitalCombiner should be a list of Block and/or Signal instances.")

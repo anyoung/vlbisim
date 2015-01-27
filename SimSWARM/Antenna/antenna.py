@@ -12,6 +12,8 @@
 #  
 #  Changelog:
 #  	AY: Created 2015-01-22
+#	AY: Implemented Array as Parallel of Antenna 2015-01-27
+
 """
 Defines antenna related classes and utilities.
 
@@ -165,14 +167,58 @@ class Array(Antenna):
 		return (x_all,y_all,z_all)
 		
 	
-	def __init__(self,ant):
+	def __init__(self,antlist):
 		"""
 		Construct an array comprising the given list of antennas.
 		
 		Arguments:
-		ant -- List of Antenna instances.
+		antlist -- List of Antenna instances.
 		"""
 		
-		self._antennas = ant
+		self._antennas = antlist
+	
+	def add_source(self,src):
+		"""
+		Add a source to this antenna array's received signals.
+		
+		Arguments:
+		src -- SimSWARM.Source.Source instance that defines the source, 
+		or an iterable object of such instances.
+		
+		Notes:
+		The source (or sources) is (are) added to each of the antennas
+		in the array. Sources added in this way use the same signal (and
+		therefore the same generator), so in the case of a random generated
+		signal, the resulting signals at the antenna outputs would be correlated.
+		
+		Sources using independent signals (and generators) can be added
+		separately to each of the antennas using the Antenna.add_source
+		to generate uncorrelated signals.
+		"""
+		
+		if (isinstance(src,collections.Iterable)):
+			for s in src:
+				self.add_source(s)
+		else:
+			if (not isinstance(src,sr.Source)):
+				raise TypeError("Only Source instances can be added to Antenna source list.")
+			
+			for a in self.antennas:
+				a.add_source(src)
+	
+	def receiver_block(self):
+		"""
+		Generate the signal received by this antenna array.
+		
+		The result is returned as a Parallel instance on which the output
+		method may be called to yield the signal received by the antenna.
+		
+		"""
+		
+		antenna_blocks = list()
+		for antenna in self.antennas:
+			antenna_blocks.append(antenna.receiver_block())
+		
+		return bl.Parallel(antenna_blocks)
 
 # end class Array
