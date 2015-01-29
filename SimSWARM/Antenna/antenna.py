@@ -13,6 +13,7 @@
 #  Changelog:
 #  	AY: Created 2015-01-22
 #	AY: Implemented Array as Parallel of Antenna 2015-01-27
+#	AY: Fixed .position attribute of Array (.positions removed) 2015-01-28
 
 """
 Defines antenna related classes and utilities.
@@ -148,7 +149,7 @@ class Array(Antenna):
 		return self._antennas
 	
 	@property
-	def positions(self):
+	def position(self):
 		"""
 		Return the positions of the antennas.
 		
@@ -166,6 +167,18 @@ class Array(Antenna):
 		
 		return (x_all,y_all,z_all)
 		
+	@property
+	def sources(self):
+		"""
+		Return a list of the sources-per-antenna list for all antennas.
+		
+		"""
+		
+		src_list_list = list()
+		for ant in self.antennas:
+			src_list_list.append(ant.sources)
+		
+		return src_list_list
 	
 	def __init__(self,antlist):
 		"""

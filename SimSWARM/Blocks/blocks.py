@@ -14,6 +14,7 @@
 #  	AY: Created 2015-01-20
 #	AY: Changed frequency magnitude slope block to dB/GHz 2015-01-27
 #	AY: Added Parallel class 2015-01-27
+#	AY: Added DigitalFFT class 2015-01-27
 
 """
 Defines various fundamental signal processing blocks.
@@ -24,6 +25,9 @@ import SimSWARM.Signal as sg
 import FixedWidthBinary as fw
 
 import copy
+import numpy as np
+
+pi = np.pi
 
 class Block(object):
 	"""
@@ -747,15 +751,24 @@ class Requantizer(Block):
 		
 		# extract samples from input signal
 		svec = s_in.samples
+		# get word type, either Word or WordComplex
+		word_type = type(s_in.samples_word)
 		
 		try:
-			svec_digital = fw.Word(svec,self.precision).value
+			svec_digital = word_type(svec,self.precision).value
 		except fw.OverflowError:
 			max_val = self.precision.maximum_value
 			min_val = self.precision.minimum_value
-			svec[svec > max_val] = max_val
-			svec[svec < min_val] = min_val
-			svec_digital = fw.Word(svec,self.precision).value
+			if (word_type == fw.WordComplex):
+				svec[svec.real > max_val] = max_val + svec[svec.real > max_val].imag*1j
+				svec[svec.real < min_val] = min_val + svec[svec.real < min_val].imag*1j
+				svec[svec.imag > max_val] = max_val*1j + svec[svec.imag > max_val].real
+				svec[svec.imag < min_val] = min_val*1j + svec[svec.imag < min_val].real
+			else:
+				svec[svec > max_val] = max_val
+				svec[svec < min_val] = min_val
+			
+			svec_digital = word_type(svec,self.precision).value
 		
 		return sg.DigitalSignal(s_in.sample_rate,self.precision,svec_digital)
 
@@ -764,7 +777,7 @@ class Requantizer(Block):
 
 class DigitalGain(Block):
 	"""
-	Apply a constant gain to a digital signal.
+	Apply a gain to a digital signal.
 	
 	"""
 	
@@ -791,18 +804,28 @@ class DigitalGain(Block):
 		Construct a digital gain block.
 		
 		Arguments:
-		g -- The real-valued gain to be applied.
+		g -- The gain to be applied.
 		precision -- The WordFormat instance that defines the binary
 		representation of the gain parameters.
 		
 		Notes:
-		The gain is stored internally as a FixedWidthBinary.Word using
-		the precision passed to the constructor. Accessing the stored 
-		gain value will therefore be limited by the precision.
+		The gain is stored internally as a FixedWidthBinary.Word (or 
+		.WordComplex if g is complex-valued) the precision passed to the 
+		constructor. Accessing the stored gain value will therefore be 
+		limited by the precision.
+		
+		The gain can either be scalar or per-sample (if g is a vector
+		with as many elements as samples are expected from the attached
+		source).
 		
 		"""
 		
-		self._gain_word = fw.Word(g,precision)
+		if (np.iscomplexobj(g)):
+			self._gain_word = fw.WordComplex(g,precision)
+		else:
+			print ".?"
+			self._gain_word = fw.Word(g,precision)
+			print ".!"
 	
 	def output(self):
 		"""
@@ -826,10 +849,10 @@ class DigitalGain(Block):
 		
 		# do multiplication using Word instances
 		out_word = s_in.samples_word * self.gain_word
-		
-		return DigitalSignal(out_word,out_word.word_format)
+	
+		return sg.DigitalSignal(s_in.sample_rate,out_word.word_format,out_word.value)
 
-# end class DigitalMultiplier
+# end class DigitalGain
 
 class DigitalCombiner(Block):
 	"""
@@ -873,20 +896,163 @@ class DigitalCombiner(Block):
 		"""
 		
 		result = None
+		sample_rate = None
 		for src in self.source:
 			if (isinstance(src,Block)):
 				src = src.output()
 			
 			if (not isinstance(src,sg.DigitalSignal)):
 				raise RuntimeError("DigitalCombiner can only operate on DigitalSignal inputs.")
+				
+			if (sample_rate == None):
+				sample_rate = src.sample_rate
+			else:
+				if (sample_rate != src.sample_rate):
+					raise RuntimeError("Sample rates should match at DigitalCombiner input.")
 			
 			if (result == None):
-				result = src
+				result = src.samples_word
 			else:
-				result = result + src
+				result = result + src.samples_word
 		
-		return result
+		return sg.DigitalSignal(sample_rate,result.word_format,result.value)
 
 # end class DigitalCombiner
+
+class DigitalFFT(Block):
+	"""
+	Implements a digital FFT.
+	
+	"""
+	
+	@property
+	def precision(self):
+		"""
+		Return the precision used for representing Fourier coefficients.
+		"""
+		
+		return self._precision
+	
+	def __init__(self,precision):
+		"""
+		Create an FFT block.
+		
+		Arguments:
+		precision -- The FixedWidthBinary.WordFormat instance that defines
+		the binary representation of the Fourier coefficients.
+		"""
+		
+		self._precision = precision
+	
+	def output(self):
+		
+		rate,result = self._fft_routine()
+		
+		return sg.DigitalSignal(rate,result.word_format,result.value,force_complex=True)
+	
+	def _fft_routine(self):
+		"""
+		Internal method that performs the FFT on the source signal.
+		
+		Notes:
+		Raises an error when the number of samples is not a whole-numbered
+		power of two.
+		"""
+		
+		src = self.source
+		
+		if (isinstance(src,Block)):
+			src = src.output()
+		
+		if (not isinstance(src,sg.DigitalSignal)):
+			raise RuntimeError("FFTBlock can only operate on DigitalSignal instance.")
+		
+		N = src.number_of_samples
+		log2_N = np.log2(N)
+		if ( (log2_N - int(log2_N)) != 0.0 ):
+			raise RuntimeError("Only radix-2 implemented, number of samples should be whole-numbered power of two.")
+		
+		# represent samples in the output WordFormat
+		samples_word = fw.WordComplex(src.samples,self.precision)
+		samples_fft_word = self._recursive_dft(samples_word,N)
+		
+		return (src.sample_rate,samples_fft_word)
+	
+	def _recursive_dft(self,full,N):
+		"""
+		Compute the N-point DFT using two N/2-point DFTs.
+		
+		Arguments:
+		full -- The input vector, given as FixedWidthBinary.Word
+		N -- Number of elements in the input vector.
+		
+		Notes:
+		The result is returned as a FixedWidthBinary.Word. The automatic
+		bit-growth for binary operations on Word instances is ignored in
+		the current implementation. Instead, the calculations are performed
+		on the value attributes of the Words involved, and the result
+		used to create a Word instance using the same WordFormat of full.
+		
+		"""
+		
+		if (N == 1):
+			return fw.WordComplex(full.value,full.word_format)
+		else:
+			# divide into two N/2-point DFTs
+			even_half = fw.WordComplex(full.value[0::2],full.word_format)
+			even_half = self._recursive_dft(even_half,N/2)
+			odd_half = fw.WordComplex(full.value[1::2],full.word_format)
+			odd_half = self._recursive_dft(odd_half,N/2)
+			# compute twiddle factors
+			twiddle_factors = self._compute_twiddle(N)
+			# combine into N-point DFT
+			result_lower = even_half.value + twiddle_factors.value * odd_half.value
+			result_upper = even_half.value - twiddle_factors.value * odd_half.value
+			return fw.WordComplex(np.concatenate((result_lower,result_upper)),full.word_format)
+
+	def _compute_twiddle(self,N):
+		"""
+		Compute W_N^(n) = exp(-j*2*pi*n/N) for all n = 0, 1, ..., N/2-1
+		"""
+		
+		nvec = np.arange(0,N/2)
+		wvec = np.exp(-1j*2.0*pi*nvec/N)
+		
+		return fw.WordComplex(wvec,self.precision)
+
+	def _alt_output(self):
+		"""
+		Alternative output method that is based on numpy's FFT implementation.
+		
+		This method is useful to check the impact of quantization *during*
+		the FFT algorithm. Here the FFT is computed with machine precision
+		using the quantized input samples, and the final result then 
+		quantized according to the precision of the FFT block.
+		
+		"""
+		
+		rate,result = self._alt_fft_routine()
+		
+		return sg.DigitalSignal(rate,result.word_format,result.value)
+	
+	def _alt_fft_routine(self):
+		"""
+		Alternative internal computation based on numpy's FFT implementation.
+		
+		"""
+		
+		src = self.source
+		
+		if (isinstance(src,Block)):
+			src = src.output()
+		
+		if (not isinstance(src,sg.DigitalSignal)):
+			raise RuntimeError("FFTBlock can only operate on DigitalSignal instance.")
+		
+		samples_fft = np.fft.fft(src.samples)
+		
+		return (src.sample_rate,fw.WordComplex(samples_fft,self.precision))
+
+# end class DigitalFFT
 
 ### End digital blocks

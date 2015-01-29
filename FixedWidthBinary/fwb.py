@@ -395,7 +395,7 @@ class WordComplex(Word):
 
 	"""
 
-	def __init__(self,val,fmt):
+	def __init__(self,val,fmt,dbg=False):
 		"""
 		Construct a limited width binary representation of a complex number.
 		
@@ -416,8 +416,12 @@ class WordComplex(Word):
 		if (isinstance(val,Word)):
 			val = val.value
 			
+		if (dbg):
+			while True:
+				input("DBG:")
+		
 		# cast val to complex
-		val = complex(val)
+		val = np.array(val,dtype=np.complex)
 		
 		# store real and imaginary parts separately
 		self._scaled_value_real = np.array(np.array(val.real) / fmt.lsb_value, dtype=np.int64)
@@ -532,7 +536,7 @@ class WordComplex(Word):
 		pos_value_real = self.scaled_value_real & self.word_format.maximum_scaled_value
 		neg_value_imag = self.scaled_value_imag & (-self.word_format.minimum_scaled_value)
 		pos_value_imag = self.scaled_value_imag & self.word_format.maximum_scaled_value
-		return ((pos_value_real - neg_value_real) + 1.0j*(pos_value_imag - neg_value_imag))*self.word_format.lsb_value
+		return np.array(((pos_value_real - neg_value_real) + 1.0j*(pos_value_imag - neg_value_imag))*self.word_format.lsb_value,dtype=np.complex)
 
 # End class WordComplex
 

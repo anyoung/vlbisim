@@ -754,10 +754,10 @@ class DigitalSignal(Signal):
 	
 	DigitalSignal is characterized by a sample rate, precision defined
 	by FixedWidthBinary.WordFormat instance, and the signal samples stored 
-	as a FixedWidthBinary.Word instance.
+	as a FixedWidthBinary.Word (or .WordComplex) instance.
 	"""
 	
-	def __init__(self,rate,precision,svec):
+	def __init__(self,rate,precision,svec,force_complex=False):
 		"""
 		Construct a digital signal for the given rate, precision and samples.
 		
@@ -767,14 +767,22 @@ class DigitalSignal(Signal):
 		of signal samples
 		svec -- An array of sampled values.
 		
+		Keyword arguments:
+		force_complex -- Force FixedWidthBinary.WordComplex to be used when
+		set to True (default is False).
+		
 		Notes:
-		svec should be real. If complex svec is given, the imaginary component
-		is discarded by casting to real numeric type.
+		svec can be complex-valued, in which case it is stored internally
+		as FixedWidthBinary.WordComplex; if it is real-valued, it is stored
+		as FixedWidthBinary.Word.
 		"""
 		
 		self._sample_rate = rate
 		self._precision = precision
-		self._samples_word = fw.Word(svec,precision)
+		if (np.iscomplexobj(svec) or force_complex):
+			self._samples_word = fw.WordComplex(svec,precision)
+		else:
+			self._samples_word = fw.Word(svec,precision)
 	
 	@property
 	def sample_rate(self):
@@ -823,36 +831,36 @@ class DigitalSignal(Signal):
 # end class DigitalSignal
 
 
-class DigitalSignalComplex(DigitalSignal):
-	"""
-	Represent a complex digital signal.
-	
-	All methods except for the constructor are inherited as-is. The 
-	samples are stored as FixedWidthBinary.WordComplex internally and the 
-	complex nature of the signal is handled by that class.
-	
-	Apart from the constructor, all other class attributes are inherited
-	as-is from DigitalSignal.
-	"""
-	
-	def __init__(self,rate,precision,svec):
-		"""
-		Construct a digital signal for the given rate, precision and samples.
-		
-		Arguments:
-		rate -- Sampling rate in samples per second.
-		precision -- FixedWidthBinary.WordFormat that defines the binary 
-		representation of signal samples
-		svec -- An array of sampled values.
-		
-		Notes:
-		svec can be real or complex, if real then zero imaginary part is
-		assumed.
-		
-		"""
-		
-		self._sample_rate = rate
-		self._precision = precision
-		self._samples_word = fw.WordComplex(svec,precision)
-
-# end class DigitalSignalComplex
+#~ class DigitalSignalComplex(DigitalSignal):
+	#~ """
+	#~ Represent a complex digital signal.
+	#~ 
+	#~ All methods except for the constructor are inherited as-is. The 
+	#~ samples are stored as FixedWidthBinary.WordComplex internally and the 
+	#~ complex nature of the signal is handled by that class.
+	#~ 
+	#~ Apart from the constructor, all other class attributes are inherited
+	#~ as-is from DigitalSignal.
+	#~ """
+	#~ 
+	#~ def __init__(self,rate,precision,svec):
+		#~ """
+		#~ Construct a digital signal for the given rate, precision and samples.
+		#~ 
+		#~ Arguments:
+		#~ rate -- Sampling rate in samples per second.
+		#~ precision -- FixedWidthBinary.WordFormat that defines the binary 
+		#~ representation of signal samples
+		#~ svec -- An array of sampled values.
+		#~ 
+		#~ Notes:
+		#~ svec can be real or complex, if real then zero imaginary part is
+		#~ assumed.
+		#~ 
+		#~ """
+		#~ 
+		#~ self._sample_rate = rate
+		#~ self._precision = precision
+		#~ self._samples_word = fw.WordComplex(svec,precision)
+#~ 
+#~ # end class DigitalSignalComplex
