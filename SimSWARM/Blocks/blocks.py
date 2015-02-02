@@ -15,6 +15,7 @@
 #	AY: Changed frequency magnitude slope block to dB/GHz 2015-01-27
 #	AY: Added Parallel class 2015-01-27
 #	AY: Added DigitalFFT class 2015-01-27
+#	AY: Added DigitalReal class 2015-02-02
 
 """
 Defines various fundamental signal processing blocks.
@@ -945,6 +946,10 @@ class DigitalFFT(Block):
 		self._precision = precision
 	
 	def output(self):
+		"""
+		Generate and return the FFT of the input signal.
+		
+		"""
 		
 		rate,result = self._fft_routine()
 		
@@ -1054,5 +1059,62 @@ class DigitalFFT(Block):
 		return (src.sample_rate,fw.WordComplex(samples_fft,self.precision))
 
 # end class DigitalFFT
+
+class DigitalRealFFT(DigitalFFT):
+	"""
+	Implements a digital real FFT.
+	
+	The underlying implementation is identical to DigitalFFT, and when
+	output is requested the negative frequency spectrum samples are 
+	removed from the returned result.
+	
+	"""
+	
+	def output(self):
+		"""
+		Generate and return the real-FFT of the input signal.
+		
+		Notes:
+		For a real-valued input signal the spectrum has Hermitian symmetry
+		so that the spectrum may be defined uniquely from only the positive
+		frequency spectrum samples. In this implementation the returned
+		spectrum samples returned are those corresponding to frequencies
+		in the range [0,fmax/2-fstep], where fmax is half the sampling rate
+		and fstep is the frequency spacing between consecutive spectrum
+		samples.
+		
+		"""
+		
+		# compute the FFT as usual
+		rate,result = self._fft_routine()
+		
+		# now select only positive frequency samples
+		N_samples = len(result.value)
+		result = fw.WordComplex(result.value[0:(N_samples/2)],result.word_format)
+		
+		return sg.DigitalSignal(rate,result.word_format,result.value,force_complex=True)
+		
+	def _alt_output(self):
+		"""
+		Alternative output method that is based on numpy's FFT implementation.
+		
+		Notes:
+		The implementation uses numpy.fft.fft and not .rfft. See this 
+		class' output() method and DigitalFFT._alt_output() for more 
+		information.
+		
+		"""
+		
+		# compute the FFT as usual
+		rate,result = self._alt_fft_routine()
+		
+		# now select only positive frequency samples
+		N_samples = len(result.value)
+		result = fw.WordComplex(result.value[0:(N_samples/2)],result.word_format)
+		
+		return sg.DigitalSignal(rate,result.word_format,result.value)
+	
+# end class DigitalRealFFT
+
 
 ### End digital blocks

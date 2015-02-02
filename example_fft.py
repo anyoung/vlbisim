@@ -12,6 +12,7 @@
 #  
 #  Changelog:
 #  	AY: Created 2015-01-27
+#	AY: Added use of DigitalRealFFT block
 
 """
 Example script to illustrate the use of the FFT block.
@@ -74,10 +75,17 @@ def main():
 	spectrum = fft_block.output()
 	alt_spectrum = fft_block._alt_output()
 	
+	# Do realFFT in parallel
+	rfft_block = bl.DigitalRealFFT(adc_precision)
+	rfft_block.attach_source(adc_block)
+	rspectrum = rfft_block.output()
+	alt_rspectrum = rfft_block._alt_output()
+	
 	# Get frequency sample points
 	fmax = 0.5*rate
 	fstep = rate/num_of_samples
 	fvec = np.arange(-fmax,fmax,fstep)
+	rfvec = np.arange(0,fmax,fstep)
 	
 	# plot results
 	#raise RuntimeError("Break.")
@@ -86,6 +94,16 @@ def main():
 	plt.plot(fvec/1e9,np.fft.fftshift(spectrum.samples.imag),'s',label='Imag (DiFFT)',markerfacecolor='w')
 	plt.plot(fvec/1e9,np.fft.fftshift(alt_spectrum.samples.real),'x',label='Real')
 	plt.plot(fvec/1e9,np.fft.fftshift(alt_spectrum.samples.imag),'+',label='Imag')
+	plt.legend()
+	plt.title('Signal spectrum')
+	plt.xlabel('Frequency [GHz]')
+	plt.show()
+
+	plt.figure()
+	plt.plot(rfvec/1e9,rspectrum.samples.real,'o',label='Real (DirFFT)',markerfacecolor='w')
+	plt.plot(rfvec/1e9,rspectrum.samples.imag,'s',label='Imag (DirFFT)',markerfacecolor='w')
+	plt.plot(rfvec/1e9,alt_rspectrum.samples.real,'x',label='Real')
+	plt.plot(rfvec/1e9,alt_rspectrum.samples.imag,'+',label='Imag')
 	plt.legend()
 	plt.title('Signal spectrum')
 	plt.xlabel('Frequency [GHz]')
