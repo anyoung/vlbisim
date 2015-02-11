@@ -13,6 +13,7 @@
 #  Changelog:
 #  	AY: Created 2015-01-20
 #	AY: Changed frequency magnitude slope to dB/GHz
+#	AY: Implemented more memory efficient noise generation for large time offsets 2015-02-11
 
 """
 Defines various signal utilities.
@@ -613,6 +614,15 @@ class GaussianNoiseGenerator(Generator):
 	# sampling.
 	_seed_list = list([0])
 
+	# In order to generate signals with very large time-offsets we define
+	# this parameter as the largest argument to the call np.rand.randn().
+	# If the given time-offset requires sampling the distribution beyond
+	# this many samples, then the sample offset is done in stages with 
+	# multiple ensembles of size _largest_sample_set drawn repeatedly.
+	# This many samples corresponds to roughly 8MB of memory (double 
+	# precision) required for an ensemble.
+	_largest_sample_set = 2**20
+
 	def __init__(self,mean=0.0,variance=1.0):
 		"""
 		Construct a gaussian noise signal with the given characteristics.
@@ -650,9 +660,6 @@ class GaussianNoiseGenerator(Generator):
 		See the constructor method for signal parameters, and baseclass
 		generate method for more information.
 		
-		Notes:
-		Currently only integer multiples of the sample period are 
-		supported, in either positive or negative directions.
 		"""
 		
 		# get time-vector
@@ -666,20 +673,54 @@ class GaussianNoiseGenerator(Generator):
 		# this takes care of integer-multiples of sample period
 		if (s_min < 0):
 			np.random.seed(self.seed['neg'])
-			# note that negative-time samples are flipud'ed
-			samples_neg = np.flipud(np.random.randn(-s_min))
+#			samples_neg = np.flipud(np.random.randn(-s_min))
+#			if (s_max < 0):
+#				samples_neg = samples_neg[(-s_max-1):(-s_min)]
 			if (s_max < 0):
-				samples_neg = samples_neg[(-s_max-1):(-s_min)]
+				number_of_garbage_samples = -s_max-1
+				while (number_of_garbage_samples > 0):
+					if (number_of_garbage_samples > self._largest_sample_set):
+						#print "Making garbage, ", number_of_garbage_samples, " to go"
+						np.random.randn(self._largest_sample_set)
+						number_of_garbage_samples = number_of_garbage_samples - self._largest_sample_set
+					else:
+						#print "Making garbage, ", number_of_garbage_samples, " to go"
+						np.random.randn(number_of_garbage_samples)
+						break
+				#print "Random samples from ",s_min," to ",s_max, " is ",s_max+1-s_min
+				samples_neg = np.random.randn(s_max+1-s_min)
+			else:
+				# take one garbage sample, since we only start counting from -1 and not from 0
+				#np.random.randn(1)
+				samples_neg = np.random.randn(-s_min)
 		else:
 			samples_neg = np.zeros(0)
+		# note that negative-time samples are flipud'ed
+		samples_neg = np.flipud(samples_neg)
+		#print "Number of negative samples is",len(samples_neg)
 		
 		if (s_max >= 0):
 			np.random.seed(self.seed['pos'])
-			samples_pos = np.random.randn(s_max+1)
+#			samples_pos = np.random.randn(s_max+1)
+#			if (s_min >= 0):
+#				samples_pos = samples_pos[s_min:s_max+1]
 			if (s_min >= 0):
-				samples_pos = samples_pos[s_min:s_max+1]
+				number_of_garbage_samples = s_min
+				while (number_of_garbage_samples > 0):
+					if (number_of_garbage_samples > self._largest_sample_set):
+						#print "Making garbage, ", number_of_garbage_samples, " to go"
+						np.random.randn(self._largest_sample_set)
+						number_of_garbage_samples = number_of_garbage_samples - self._largest_sample_set
+					else:
+						np.random.randn(number_of_garbage_samples)
+						break
+				samples_pos = np.random.randn(s_max+1-s_min)
+			else:
+				samples_pos = np.random.randn(s_max+1)
+#				samples_pos = samples_pos[s_min:s_max+1]
 		else:
 			samples_pos = np.zeros(0)
+		#print "Number of semi-positive samples is",len(samples_pos)
 		
 		# concatenate positive and negative parts
 		samples_all = np.concatenate((samples_neg,samples_pos))
