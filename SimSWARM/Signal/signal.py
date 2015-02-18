@@ -14,6 +14,7 @@
 #  	AY: Created 2015-01-20
 #	AY: Changed frequency magnitude slope to dB/GHz
 #	AY: Implemented more memory efficient noise generation for large time offsets 2015-02-11
+#	AY: Zero-padding for FFT when adding fine delay
 
 """
 Defines various signal utilities.
@@ -730,13 +731,16 @@ class GaussianNoiseGenerator(Generator):
 		# time-vector. Fractional delays are handled via FFT.
 		if (samples_all.size > tvec.size):
 			#print "Mismatch in vector sizes"
-			samples_fft = np.fft.fftshift(np.fft.fft(samples_all));
+			# zero pad to next power of two
+			next_power_of_two = int(np.ceil(np.log2(samples_all.size)));
+			samples_fft = np.fft.fftshift(np.fft.fft(samples_all,2**next_power_of_two));
 			delta_t = (tvec[0]-1.0*s_min/r)
 			fmax = r/2.0
-			fstep = 1.0*r/samples_all.size # note that n is not the correct denominator
+			fstep = 1.0*r/(2**next_power_of_two) # zero-padded in time-domain
 			fvec = np.arange(-fmax,fmax,fstep)
 			samples_fft = samples_fft * np.exp(1j*2.0*pi*fvec*delta_t)
-			samples_all = np.fft.ifft(np.fft.ifftshift(samples_fft)).real
+			# truncate to original number of samples on iFFT
+			samples_all = np.fft.ifft(np.fft.ifftshift(samples_fft)).real[0:samples_all.size]
 			# Due to rounding errors the length of samples_all may be more
 			# than one element longer than that of tvec. In this case we
 			# need to select the correct subset of elements from samples_all.
