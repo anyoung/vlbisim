@@ -18,6 +18,7 @@
 #	AY: Added DigitalRealFFT class 2015-02-02
 # 	AY: Added time offset to AnalogDigitalConverter 2015-02-18
 #	AY: Added TimeSteppingADC 2015-02-18
+#	AY: Added switch to FFT-blocks to allow bypassing limited precision calculations 2015-02-18
 
 """
 Defines various fundamental signal processing blocks.
@@ -992,22 +993,37 @@ class DigitalFFT(Block):
 		
 		return self._precision
 	
-	def __init__(self,precision):
+	@property
+	def use_alt_output(self):
+		"""
+		Return the value of the alternative output flag.
+		"""
+		
+		return self._use_alt_output
+	
+	def __init__(self,precision,use_alt_output=False):
 		"""
 		Create an FFT block.
 		
 		Arguments:
 		precision -- The FixedWidthBinary.WordFormat instance that defines
 		the binary representation of the Fourier coefficients.
+		use_alt_output -- Indicates whether alternate output method based on
+		numpy.fft.fft should be used. Default is False.
 		"""
 		
 		self._precision = precision
+		self._use_alt_output = use_alt_output
 	
 	def output(self):
 		"""
 		Generate and return the FFT of the input signal.
 		
 		"""
+		
+		# short-circuit for alternative output
+		if (self.use_alt_output):
+			return self._alt_output()
 		
 		rate,result = self._fft_routine()
 		
@@ -1142,6 +1158,9 @@ class DigitalRealFFT(DigitalFFT):
 		samples.
 		
 		"""
+		
+		if (self.alt_output):
+			return self._alt_output()
 		
 		# compute the FFT as usual
 		rate,result = self._fft_routine()
