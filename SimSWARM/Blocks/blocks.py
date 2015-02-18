@@ -15,7 +15,9 @@
 #	AY: Changed frequency magnitude slope block to dB/GHz 2015-01-27
 #	AY: Added Parallel class 2015-01-27
 #	AY: Added DigitalFFT class 2015-01-27
-#	AY: Added DigitalReal class 2015-02-02
+#	AY: Added DigitalRealFFT class 2015-02-02
+# 	AY: Added time offset to AnalogDigitalConverter 2015-02-18
+#	AY: Added TimeSteppingADC 2015-02-18
 
 """
 Defines various fundamental signal processing blocks.
@@ -623,6 +625,15 @@ class AnalogDigitalConverter(Block):
 	"""
 	
 	@property
+	def time_offset(self):
+		"""
+		Return the time offset currently in effect or this ADC.
+		
+		"""
+		
+		return self._time_offset
+	
+	@property
 	def sample_rate(self):
 		"""
 		Return the sample rate for the ADC
@@ -663,6 +674,9 @@ class AnalogDigitalConverter(Block):
 		self._sample_rate = rate
 		self._number_of_samples = length
 		self._precision = precision
+		
+		# the time offset is unused in this ADC block
+		self._time_offset = 0.0
 	
 	def output(self):
 		"""
@@ -685,8 +699,10 @@ class AnalogDigitalConverter(Block):
 		if (not isinstance(s_in,sg.AnalogSignal)):
 			raise ValueError("Input to AnalogDigitalConverter should be an AnalogSignal instance.")
 		
-		# get machine precision samples of the analog input
-		svec = s_in.sample(self.sample_rate,self.number_of_samples,0.0) # note: zero time-delay in sampling
+		# Get machine precision samples of the analog input. The time offset
+		# is unused in this ADC implementation, but may be used in derived
+		# classes, e.g. TimeSteppingADC.
+		svec = s_in.sample(self.sample_rate,self.number_of_samples,self.time_offset)
 		
 		# Apply amplitude discretization. The constructor of a FixedWithNumber
 		# may raise an error if the given values fall outside the range 
@@ -702,6 +718,48 @@ class AnalogDigitalConverter(Block):
 			svec_digital = fw.Word(svec,self.precision).value
 		
 		return sg.DigitalSignal(self.sample_rate,self.precision,svec_digital)
+
+class TimeSteppingADC(AnalogDigitalConverter):
+	"""
+	Enables output of continuous data stream by sampling multiple times.
+	
+	Notes:
+	Constructor method inherited as-is from base class.
+	
+	"""
+	
+	def step_in_time(self,time_step):
+		"""
+		Increase the time offset in effect for this ADC.
+		
+		Arguments:
+		time_step -- The amount of time to step, in seconds.
+		
+		"""
+		
+		self._time_offset = self.time_offset + time_step
+	
+	def output(self):
+		"""
+		Return the digital output for the given analog input.
+		
+		Notes:
+		The implementation copies that of AnalogDigitalConverter with 
+		the additional feature that the time offset is incremented by
+		the time defined by the sample rate and number of samples.
+		
+		"""
+		
+		# get output as usual for ADC
+		signal_out = super(TimeSteppingADC,self).output()
+		
+		# do time-stepping
+		sample_time = self.number_of_samples / self.sample_rate
+		self.step_in_time(sample_time)
+		
+		return signal_out
+
+# end class TimeSteppedADC
 
 ### End analog-to-digital blocks
 
