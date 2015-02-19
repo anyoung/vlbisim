@@ -15,6 +15,7 @@
 #	AY: Changed frequency magnitude slope to dB/GHz
 #	AY: Implemented more memory efficient noise generation for large time offsets 2015-02-11
 #	AY: Zero-padding for FFT when adding fine delay
+#	AY: Changed noise generation to more CPU- and memory efficient implementation 2015-02-19
 
 """
 Defines various signal utilities.
@@ -615,15 +616,28 @@ class GaussianNoiseGenerator(Generator):
 	# sampling.
 	_seed_list = list([0])
 
-	# In order to generate signals with very large time-offsets we define
-	# this parameter as the largest argument to the call np.rand.randn().
-	# If the given time-offset requires sampling the distribution beyond
-	# this many samples, then the sample offset is done in stages with 
-	# multiple ensembles of size _largest_sample_set drawn repeatedly.
-	# This many samples corresponds to roughly 8MB of memory (double 
-	# precision) required for an ensemble.
-	_largest_sample_set = 2**20
+	#~ # In order to generate signals with very large time-offsets we define
+	#~ # this parameter as the largest argument to the call np.rand.randn().
+	#~ # If the given time-offset requires sampling the distribution beyond
+	#~ # this many samples, then the sample offset is done in stages with 
+	#~ # multiple ensembles of size _largest_sample_set drawn repeatedly.
+	#~ # This many samples corresponds to roughly 8MB of memory (double 
+	#~ # precision) required for an ensemble.
+	#~ _largest_sample_set = 2**20
 
+	# Large numbers of samples are split across ranges associated with 
+	# different random generator seeds. This is the total number of samples
+	# associated per seed value.
+	_samples_per_seed = 2**20
+	
+	# To allow for very large time offsets a large number of seeds need
+	# to be available for each different generator. This is the increment
+	# in seed value for each  new generator. Allows for roughly 1G different
+	# generators to be instantiated without error, and combined with the
+	# the number of samples per seed gives about 4P samples per generator
+	# before overlap occurs.
+	_seed_increment_per_generator = 2**32
+	
 	def __init__(self,mean=0.0,variance=1.0):
 		"""
 		Construct a gaussian noise signal with the given characteristics.
@@ -646,10 +660,10 @@ class GaussianNoiseGenerator(Generator):
 		
 		# Create new seed and add to the list.
 		this_seed = self._seed_list[-1]
-		self._seed_list.append(this_seed+2)
+		self._seed_list.append(this_seed + self._seed_increment_per_generator)
 		
 		# Assign this instance seed
-		self._seed = this_seed
+		self._base_seed = this_seed
 		
 		self._mean = mean
 		self._variance = variance
@@ -663,6 +677,8 @@ class GaussianNoiseGenerator(Generator):
 		
 		"""
 		
+		#~ print "Generate on ",self.__class__
+		
 		# get time-vector
 		tvec = self.get_time_vector(r,n,t)
 		#print "Time-vector = ", tvec
@@ -671,60 +687,64 @@ class GaussianNoiseGenerator(Generator):
 		s_max = int(np.ceil(np.max(tvec)*r))
 		#print "Signal of interest between samples (",s_min,", ",s_max, ")"
 		
-		# this takes care of integer-multiples of sample period
-		if (s_min < 0):
-			np.random.seed(self.seed['neg'])
-#			samples_neg = np.flipud(np.random.randn(-s_min))
-#			if (s_max < 0):
-#				samples_neg = samples_neg[(-s_max-1):(-s_min)]
-			if (s_max < 0):
-				number_of_garbage_samples = -s_max-1
-				while (number_of_garbage_samples > 0):
-					if (number_of_garbage_samples > self._largest_sample_set):
-						#print "Making garbage, ", number_of_garbage_samples, " to go"
-						np.random.randn(self._largest_sample_set)
-						number_of_garbage_samples = number_of_garbage_samples - self._largest_sample_set
-					else:
-						#print "Making garbage, ", number_of_garbage_samples, " to go"
-						np.random.randn(number_of_garbage_samples)
-						break
-				#print "Random samples from ",s_min," to ",s_max, " is ",s_max+1-s_min
-				samples_neg = np.random.randn(s_max+1-s_min)
-			else:
-				# take one garbage sample, since we only start counting from -1 and not from 0
-				#np.random.randn(1)
-				samples_neg = np.random.randn(-s_min)
-		else:
-			samples_neg = np.zeros(0)
-		# note that negative-time samples are flipud'ed
-		samples_neg = np.flipud(samples_neg)
-		#print "Number of negative samples is",len(samples_neg)
+		#~ # this takes care of integer-multiples of sample period
+		#~ if (s_min < 0):
+			#~ np.random.seed(self.seed['neg'])
+#~ #			samples_neg = np.flipud(np.random.randn(-s_min))
+#~ #			if (s_max < 0):
+#~ #				samples_neg = samples_neg[(-s_max-1):(-s_min)]
+			#~ if (s_max < 0):
+				#~ number_of_garbage_samples = -s_max-1
+				#~ while (number_of_garbage_samples > 0):
+					#~ if (number_of_garbage_samples > self._largest_sample_set):
+						#~ print "Making garbage, ", number_of_garbage_samples, " to go"
+						#~ np.random.randn(self._largest_sample_set)
+						#~ number_of_garbage_samples = number_of_garbage_samples - self._largest_sample_set
+					#~ else:
+						#~ print "Making garbage, ", number_of_garbage_samples, " to go"
+						#~ np.random.randn(number_of_garbage_samples)
+						#~ break
+				#~ #print "Random samples from ",s_min," to ",s_max, " is ",s_max+1-s_min
+				#~ samples_neg = np.random.randn(s_max+1-s_min)
+			#~ else:
+				#~ # take one garbage sample, since we only start counting from -1 and not from 0
+				#~ #np.random.randn(1)
+				#~ samples_neg = np.random.randn(-s_min)
+		#~ else:
+			#~ samples_neg = np.zeros(0)
+		#~ # note that negative-time samples are flipud'ed
+		#~ samples_neg = np.flipud(samples_neg)
+		#~ #print "Number of negative samples is",len(samples_neg)
+		#~ 
+		#~ if (s_max >= 0):
+			#~ np.random.seed(self.seed['pos'])
+#~ #			samples_pos = np.random.randn(s_max+1)
+#~ #			if (s_min >= 0):
+#~ #				samples_pos = samples_pos[s_min:s_max+1]
+			#~ if (s_min >= 0):
+				#~ number_of_garbage_samples = s_min
+				#~ while (number_of_garbage_samples > 0):
+					#~ if (number_of_garbage_samples > self._largest_sample_set):
+						#~ print "Making garbage, ", number_of_garbage_samples, " to go"
+						#~ np.random.randn(self._largest_sample_set)
+						#~ number_of_garbage_samples = number_of_garbage_samples - self._largest_sample_set
+					#~ else:
+						#~ print "Making garbage, ", number_of_garbage_samples, " to go"
+						#~ np.random.randn(number_of_garbage_samples)
+						#~ break
+				#~ samples_pos = np.random.randn(s_max+1-s_min)
+			#~ else:
+				#~ samples_pos = np.random.randn(s_max+1)
+#~ #				samples_pos = samples_pos[s_min:s_max+1]
+		#~ else:
+			#~ samples_pos = np.zeros(0)
+		#~ #print "Number of semi-positive samples is",len(samples_pos)
+		#~ 
+		#~ # concatenate positive and negative parts
+		#~ samples_all = np.concatenate((samples_neg,samples_pos))
 		
-		if (s_max >= 0):
-			np.random.seed(self.seed['pos'])
-#			samples_pos = np.random.randn(s_max+1)
-#			if (s_min >= 0):
-#				samples_pos = samples_pos[s_min:s_max+1]
-			if (s_min >= 0):
-				number_of_garbage_samples = s_min
-				while (number_of_garbage_samples > 0):
-					if (number_of_garbage_samples > self._largest_sample_set):
-						#print "Making garbage, ", number_of_garbage_samples, " to go"
-						np.random.randn(self._largest_sample_set)
-						number_of_garbage_samples = number_of_garbage_samples - self._largest_sample_set
-					else:
-						np.random.randn(number_of_garbage_samples)
-						break
-				samples_pos = np.random.randn(s_max+1-s_min)
-			else:
-				samples_pos = np.random.randn(s_max+1)
-#				samples_pos = samples_pos[s_min:s_max+1]
-		else:
-			samples_pos = np.zeros(0)
-		#print "Number of semi-positive samples is",len(samples_pos)
-		
-		# concatenate positive and negative parts
-		samples_all = np.concatenate((samples_neg,samples_pos))
+		# above code obsolete, samples are given by this call
+		samples_all = self._draw_samples((s_min,s_max))
 		
 		# Adjustment for fractional sample period delays if needed. One
 		# way to check is if there are more samples than elements in the
@@ -758,20 +778,117 @@ class GaussianNoiseGenerator(Generator):
 		
 		return samples_all
 
+	def _draw_samples(self,sample_ends):
+		# Draws random samples over the range defined by
+		# [sample_ends[0],sample_ends[1]]. Note the end-points are both
+		# included, and counting starts at 0.
+		
+		#~ print "Samples per window is %d" % self._samples_per_seed
+		
+		#~ print "Draw samples over range [%d,%d]" % sample_ends
+		
+		# determine to which seed window each sample belongs
+		seed_window_start = sample_ends[0]/self._samples_per_seed
+		seed_window_end = sample_ends[1]/self._samples_per_seed
+		
+		#~ print "Samples start in window %d and end in window %d" % (seed_window_start,seed_window_end)
+		
+		# Handle seed windows correctly
+		if (seed_window_start == seed_window_end):
+			
+			#~ print "All samples in one window"
+			
+			# Easy case, just set correct seed and draw the required
+			# number of samples.
+			rs = self._seed_window_to_random_state(seed_window_start)
+			number_of_garbage_samples = np.abs(sample_ends[0] - seed_window_start*self._samples_per_seed)
+			
+			#~ print "Drawing %d garbage samples" % number_of_garbage_samples
+			
+			rs.randn(number_of_garbage_samples)
+			# + 1 due to end-points being inclusive
+			number_of_samples_to_draw = sample_ends[1] - sample_ends[0] + 1
+			
+			#~ print "Drawing %d required samples" % number_of_samples_to_draw
+			
+			return rs.randn(number_of_samples_to_draw)
+		else:
+			
+			#~ print "Samples split across two or more windows"
+			
+			# Complicated case, need to select samples at end of first
+			# window and samples at start of second window.
+			#
+			# first window
+			rs = self._seed_window_to_random_state(seed_window_start)
+			number_of_garbage_samples = np.abs(sample_ends[0] - seed_window_start*self._samples_per_seed)
+			
+			#~ print "Drawing %d garbage samples" % number_of_garbage_samples
+			
+			rs.randn(number_of_garbage_samples)
+			number_of_samples_to_draw = np.abs((seed_window_start+1)*self._samples_per_seed - sample_ends[0])
+			
+			#~ print "Drawing %d required samples (window %d)" % (number_of_samples_to_draw,seed_window_start)
+			
+			part1 = rs.randn(number_of_samples_to_draw)
+			#
+			# and samples in between the windows if they are not adjacent
+			for iwindow in range(seed_window_start+1,seed_window_end):
+				rs = self._seed_window_to_random_state(iwindow)
+				number_of_samples_to_draw = self._samples_per_seed
+				
+				#~ print "Drawing %d required samples (window %d)" % (number_of_samples_to_draw,iwindow)
+				part1 = np.concatenate((part1,rs.randn(number_of_samples_to_draw)))
+			#
+			# second window, no garbage samples here
+			rs = self._seed_window_to_random_state(seed_window_end)
+			number_of_samples_to_draw = np.abs(sample_ends[1] - seed_window_end*self._samples_per_seed) + 1
+			
+			#~ print "Drawing %d required samples (window %d)" % (number_of_samples_to_draw,seed_window_end)
+			
+			part2 = rs.randn(number_of_samples_to_draw)
+			
+			return np.concatenate((part1,part2))
+		
+	
+	def _seed_window_to_random_state(self,window):
+		# Convert a seed window number to a random state. The random state
+		# is seeded correctly according to the window number, which requires
+		# selecting the correct base number depending on whether the window 
+		# is positive (positive time) or negative (negative time). The
+		# returned object is a numpy.random.RandomState object, on which
+		# randn() may be called to draw gauss distributed samples. Note
+		# that RandomState is the preferred thread-safe method in Python.
+		
+		base_seed = self.base_seed
+		if (window < 0):
+			# The additional -2 is due to the fact that negative windows 
+			# start counting at -1, as opposed to positive windows that
+			# start counting at 0.
+			base_seed = base_seed['neg'] - 2
+		else:
+			base_seed = base_seed['pos']
+		
+		seed = base_seed + 2*np.abs(window)
+		
+		return np.random.RandomState(seed)
+
 	@property
-	def seed(self):
+	def base_seed(self):
 		"""
-		Return the random generator seeds used for this instance.
+		Return the random generator base seeds used for this instance.
 		
 		The returned object is a dictionary in which the entry 'pos' 
-		is the seed used for positive-time random samples, and 'neg' is
-		the seed used for negative-time random samples.
+		is the base_seed used for positive-time random samples, and 'neg'
+		is the base seed used for negative-time random samples. From there
+		each seed is incremented by 2 for every _samples_per_seed number 
+		of samples further away from the sample associated with zero time.
 		"""
 		
-		seed_dict = {'pos': self._seed, 'neg': self._seed+1}
+		base_seed_dict = {'pos': self._base_seed, 'neg': self._base_seed+1}
 		
-		return seed_dict
-
+		return base_seed_dict
+		
 	@property
 	def mean(self):
 		"""
