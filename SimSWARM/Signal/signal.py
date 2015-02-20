@@ -636,7 +636,11 @@ class GaussianNoiseGenerator(Generator):
 	# generators to be instantiated without error, and combined with the
 	# the number of samples per seed gives about 4P samples per generator
 	# before overlap occurs.
-	_seed_increment_per_generator = 2**32
+	#
+	# Something strange happens when this parameter is a large power-of-two
+	# which results in different generators producing the exact sample
+	# series.
+	_seed_increment_per_generator = 2**32-1
 	
 	def __init__(self,mean=0.0,variance=1.0):
 		"""
